@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <title>Wiener Linien – Routenfinder</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: linear-gradient(135deg, #0077ff, #00c6ff);
+      margin: 0;
+      padding: 0;
+      color: #fff;
+    }
+
+    .container {
+      max-width: 600px;
+      margin: 30px auto;
+      background: rgba(0, 0, 0, 0.35);
+      padding: 25px;
+      border-radius: 15px;
+      box-shadow: 0 0 20px rgba(0,0,0,0.4);
+      backdrop-filter: blur(6px);
+    }
+
+    h1 {
+      text-align: center;
+      margin-bottom: 20px;
+      font-size: 28px;
+      letter-spacing: 1px;
+    }
+
+    label {
+      font-size: 16px;
+      font-weight: bold;
+    }
+
+    input {
+      width: 100%;
+      padding: 10px;
+      margin-top: 6px;
+      border-radius: 8px;
+      border: none;
+      font-size: 16px;
+    }
+
+    .autocomplete-list {
+      background: white;
+      color: black;
+      border-radius: 8px;
+      margin-top: 2px;
+      max-height: 150px;
+      overflow-y: auto;
+      display: none;
+      position: absolute;
+      width: calc(100% - 20px);
+      z-index: 10;
+    }
+
+    .autocomplete-item {
+      padding: 8px;
+      cursor: pointer;
+    }
+
+    .autocomplete-item:hover {
+      background: #ddd;
+    }
+
+    button {
+      width: 100%;
+      padding: 12px;
+      background: #ffcc00;
+      border: none;
+      border-radius: 8px;
+      font-size: 18px;
+      font-weight: bold;
+      cursor: pointer;
+      transition: 0.2s;
+      margin-top: 15px;
+    }
+
+    button:hover {
+      background: #ffdd33;
+      transform: scale(1.03);
+    }
+
+    #result {
+      margin-top: 20px;
+      background: rgba(255,255,255,0.15);
+      padding: 15px;
+      border-radius: 10px;
+      font-size: 16px;
+      line-height: 1.5;
+    }
+
+    .map-container {
+      max-width: 800px;
+      margin: 20px auto 40px auto;
+      text-align: center;
+    }
+
+    .map-title {
+      font-size: 20px;
+      margin-bottom: 10px;
+      font-weight: bold;
+    }
+
+    .map-container img {
+      width: 100%;
+      border-radius: 10px;
+      box-shadow: 0 0 15px rgba(0,0,0,0.5);
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <h1>Wiener Linien – Routenfinder</h1>
+
+  <label>Startstation:</label>
+  <div style="position:relative;">
+    <input id="start" oninput="showSuggestions('start')" autocomplete="off">
+    <div id="start-list" class="autocomplete-list"></div>
+  </div>
+
+  <label>Zielstation:</label>
+  <div style="position:relative;">
+    <input id="end" oninput="showSuggestions('end')" autocomplete="off">
+    <div id="end-list" class="autocomplete-list"></div>
+  </div>
+
+  <button onclick="calculateRoute()">Route anzeigen</button>
+
+  <div id="result"></div>
+</div>
+
+<div class="map-container">
+  <div class="map-title">U‑Bahn-Plan Wien</div>
+  <img src="wien-ubahn-plan.png" alt="U‑Bahn Plan Wien">
+</div>
+
+<script>
+// ---------------------------
+// LINIEN-DATEN (U1–U6 + 1, 2, 5, 62)
+// ---------------------------
+const lines = {
+
+  // U1
+  "U1": [
+    "Leopoldau","Großfeldsiedlung","Aderklaaer Straße","Rennbahnweg",
+    "Kagraner Platz","Kagran","Alte Donau","Kaisermühlen VIC","Donauinsel",
+    "Vorgartenstraße","Praterstern","Nestroyplatz","Schwedenplatz",
+    "Stephansplatz","Karlsplatz","Taubstummengasse",
+    "Südtiroler Platz – Hauptbahnhof","Keplerplatz","Reumannplatz",
+    "Troststraße","Altes Landgut","Alaudagasse","Neulaa","Oberlaa"
+  ],
+
+  // U2
+  "U2": [
+    "Seestadt","Aspern Nord","Hausfeldstraße","Aspernstraße","Donauspital",
+    "Hardeggasse","Stadlau","Donaumarina","Donaustadtbrücke","Stadion",
+    "Krieau","Messe-Prater","Praterstern","Taborstraße","Schottenring",
+    "Schottentor","Rathaus","Volkstheater","Museumsquartier","Karlsplatz"
+  ],
+
+  // U3
+  "U3": [
+    "Ottakring","Kendlerstraße","Hütteldorfer Straße","Johnstraße",
+    "Schweglerstraße","Westbahnhof","Zieglergasse","Neubaugasse",
+    "Volkstheater","Herrengasse","Stephansplatz","Stubentor","Landstraße",
+    "Rochusgasse","Kardinal-Nagl-Platz","Schlachthausgasse","Erdberg",
+    "Gasometer","Zippererstraße","Enkplatz","Simmering"
+  ],
+
+  // U4
+  "U4": [
+    "Heiligenstadt","Spittelau","Friedensbrücke","Rossauer Lände",
+    "Schottenring","Schwedenplatz","Landstraße","Stadtpark","Karlsplatz",
+    "Kettenbrückengasse","Pilgramgasse","Margaretengürtel",
+    "Längenfeldgasse","Meidling Hauptstraße","Hietzing","Braunschweiggasse",
+    "Unter St. Veit","Ober St. Veit","Hütteldorf"
+  ],
+
+  // U6
+  "U6": [
+    "Floridsdorf","Neue Donau","Handelskai","Dresdner Straße","Jägerstraße",
+    "Spittelau","Währinger Straße – Volksoper","Michelbeuern – AKH",
+    "Alser Straße","Josefstädter Straße","Thaliastraße",
+    "Burggasse – Stadthalle","Westbahnhof","Gumpendorfer Straße",
+    "Längenfeldgasse","Niederhofstraße","Bahnhof Meidling","Tscherttegasse",
+    "Am Schöpfwerk","Alterlaa","Erlaaer Straße","Perfektastraße",
+    "Siebenhirten"
+  ],
+
+  // Linie 1
+  "1": [
+    "Prater Hauptallee","Praterstern","Schwedenplatz","Stephansplatz",
+    "Karlsplatz","Oper","Paulansplatz","Matzleinsdorfer Platz"
+  ],
+
+  // Linie 2
+  "2": [
+    "Dornbach","Alser Straße","Schottentor","Schottenring","Schwedenplatz",
+    "Praterstern","Friedrich-Engels-Platz"
+  ],
+
+  // Linie 5
+  "5": [
+    "Westbahnhof","Burggasse","Thaliastraße","Josefstädter Straße",
+    "Lazarettgasse","Praterstern"
+  ],
+
+  // Linie 62
+  "62": [
+    "Oper","Bärenmühldurchgang","Kettenbrückengasse","Pilgramgasse",
+    "Margaretengürtel","Längenfeldgasse","Bahnhof Meidling",
+    "Sonnergasse","Lainz"
+  ]
+};
+
+// Alle Stationen
+const allStations = [...new Set(Object.values(lines).flat())];
+
+// ---------------------------
+// TEXT NORMALISIEREN
+// ---------------------------
+function normalize(text) {
+  return text
+    .toLowerCase()
+    .replace(/ä/g, "a")
+    .replace(/ö/g, "o")
+    .replace(/ü/g, "u")
+    .replace(/ß/g, "ss")
+    .replace(/\s+/g, "");
+}
+
+// ---------------------------
+// AUTOCOMPLETE
+// ---------------------------
+function showSuggestions(field) {
+  const input = document.getElementById(field);
+  const list = document.getElementById(field + "-list");
+  const value = normalize(input.value);
+
+  list.innerHTML = "";
+  list.style.display = "none";
+
+  if (value.length === 0) return;
+
+  const matches = allStations.filter(st =>
+    normalize(st).startsWith(value)
+  );
+
+  matches.forEach(st => {
+    const item = document.createElement("div");
+    item.className = "autocomplete-item";
+    item.textContent = st;
+    item.onclick = () => {
+      input.value = st;
+      list.style.display = "none";
+    };
+    list.appendChild(item);
+  });
+
+  if (matches.length > 0) list.style.display = "block";
+}
+
+// ---------------------------
+// STATION FINDEN
+// ---------------------------
+function findStation(input) {
+  const norm = normalize(input);
+  return allStations.find(st => normalize(st) === norm) || null;
+}
+
+// ---------------------------
+// DIREKTE ROUTE
+// ---------------------------
+function directRoute(line, start, end) {
+  const stations = lines[line];
+  const i1 = stations.indexOf(start);
+  const i2 = stations.indexOf(end);
+  if (i1 === -1 || i2 === -1) return null;
+
+  const direction = i1 < i2 ? stations[stations.length - 1] : stations[0];
+  const stops = Math.abs(i2 - i1);
+
+  return { line, direction, stops };
+}
+
+// ---------------------------
+// ROUTE BERECHNEN
+// ---------------------------
+function calculateRoute() {
+  const result = document.getElementById("result");
+
+  const start = findStation(document.getElementById("start").value);
+  const end = findStation(document.getElementById("end").value);
+
+  if (!start) {
+    result.innerHTML = "Startstation wurde nicht gefunden.";
+    return;
+  }
+
+  if (!end) {
+    result.innerHTML = "Zielstation wurde nicht gefunden.";
+    return;
+  }
+
+  if (start === end) {
+    result.innerHTML = "Start = Ziel.";
+    return;
+  }
+
+  // Direkte Verbindung
+  for (const line in lines) {
+    const route = directRoute(line, start, end);
+    if (route) {
+      result.innerHTML =
+        `Direkt mit <b>${route.line}</b><br>` +
+        `Richtung: <b>${route.direction}</b><br>` +
+        `Stationen: <b>${route.stops}</b>`;
+      return;
+    }
+  }
+
+  // Umstieg
+  let best = null;
+
+  for (const lineA in lines) {
+    for (const lineB in lines) {
+      if (lineA === lineB) continue;
+
+      const interStations = lines[lineA].filter(s => lines[lineB].includes(s));
+
+      for (const inter of interStations) {
+        const part1 = directRoute(lineA, start, inter);
+        const part2 = directRoute(lineB, inter, end);
+
+        if (part1 && part2) {
+          const totalStops = part1.stops + part2.stops;
+          if (!best || totalStops < best.totalStops) {
+            best = { inter, part1, part2, totalStops };
+          }
+        }
+      }
+    }
+  }
+
+  if (best) {
+    result.innerHTML =
+      `1️⃣ Mit <b>${best.part1.line}</b> Richtung <b>${best.part1.direction}</b> (${best.part1.stops} Stationen) bis <b>${best.inter}</b><br><br>` +
+      `2️⃣ Umsteigen auf <b>${best.part2.line}</b> Richtung <b>${best.part2.direction}</b> (${best.part2.stops} Stationen) bis <b>${end}</b><br><br>` +
+      `➡️ Gesamt: <b>${best.totalStops}</b> Stationen`;
+  } else {
+    result.innerHTML = "Keine Route gefunden.";
+  }
+}
+</script>
+
+</body>
+</html>
